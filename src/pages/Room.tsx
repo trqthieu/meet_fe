@@ -14,15 +14,20 @@ const SIGNAL_SERVER = 'http://localhost:3001';
 export default function Room({
   roomId,
   userId,
+  onLeave,
 }: {
   roomId: string;
   userId: string;
-}) {
+  onLeave: () => void;
+})  {
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
   const [socket, setSocket] = useState<Socket | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
-  const peersRef = useRef<Record<string, RemotePeer>>({}); // key: socketId
-  const [, setRenderTick] = useState(0); // force rerender when peers change
+  const peersRef = useRef<Record<string, RemotePeer>>({});
+  const [, setRenderTick] = useState(0);
+
+  const [micOn, setMicOn] = useState(true);
+  const [camOn, setCamOn] = useState(true);
 
   useEffect(() => {
     const s = io(SIGNAL_SERVER);
@@ -184,23 +189,45 @@ export default function Room({
       }
     }
 
-    return () => {
-      mounted = false;
-      // leave room
-      s.emit('leave-room', { roomId });
-      // close peers
-      Object.values(peersRef.current).forEach(p => {
-        try {
-          p.pc.close();
-        } catch (e) {}
-      });
-      peersRef.current = {};
-      // stop local tracks
-      localStreamRef.current?.getTracks().forEach(t => t.stop());
+     return () => {
+      cleanupAll();
       s.disconnect();
     };
   }, [roomId, userId]);
 
+  function cleanupAll() {
+    if (socket) socket.emit('leave-room', { roomId });
+    Object.values(peersRef.current).forEach((p) => p.pc.close());
+    peersRef.current = {};
+    localStreamRef.current?.getTracks().forEach((t) => t.stop());
+  }
+
+   // 🔹 Toggle mic
+  const toggleMic = () => {
+    if (!localStreamRef.current) return;
+    const audioTrack = localStreamRef.current.getAudioTracks()[0];
+    if (audioTrack) {
+      audioTrack.enabled = !audioTrack.enabled;
+      setMicOn(audioTrack.enabled);
+    }
+  };
+
+  // 🔹 Toggle camera
+  const toggleCam = () => {
+    if (!localStreamRef.current) return;
+    const videoTrack = localStreamRef.current.getVideoTracks()[0];
+    if (videoTrack) {
+      videoTrack.enabled = !videoTrack.enabled;
+      setCamOn(videoTrack.enabled);
+    }
+  };
+
+  // 🔹 Leave room
+  const leaveRoom = () => {
+    cleanupAll();
+    if (socket) socket.disconnect();
+    onLeave();
+  };
   // Render
   const remoteVideos = Object.values(peersRef.current).map(p => (
     <div
@@ -234,6 +261,19 @@ export default function Room({
           <div style={{ fontSize: 12 }}>{userId} (you)</div>
         </div>
         {remoteVideos}
+      </div>
+
+      {/* Controls */}
+      <div style={{ marginTop: 20 }}>
+        <button onClick={toggleMic}>
+          {micOn ? 'Mute Mic' : 'Unmute Mic'}
+        </button>
+        <button onClick={toggleCam} style={{ marginLeft: 10 }}>
+          {camOn ? 'Turn Off Camera' : 'Turn On Camera'}
+        </button>
+        <button onClick={leaveRoom} style={{ marginLeft: 10, color: 'red' }}>
+          Leave Room
+        </button>
       </div>
     </div>
   );

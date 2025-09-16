@@ -4,7 +4,9 @@ import Room from './pages/Room';
 export default function App() {
   const [joined, setJoined] = useState(false);
   const [roomId, setRoomId] = useState('room-1');
-  const [userId, setUserId] = useState('user-' + Math.floor(Math.random() * 1000));
+  const [userId, setUserId] = useState(
+    'user-' + Math.floor(Math.random() * 1000)
+  );
 
   return (
     <div style={{ padding: 20 }}>
@@ -22,7 +24,11 @@ export default function App() {
           <button onClick={() => setJoined(true)}>Join</button>
         </div>
       ) : (
-        <Room roomId={roomId} userId={userId} />
+        <Room
+          roomId={roomId}
+          userId={userId}
+          onLeave={() => setJoined(false)}
+        />
       )}
     </div>
   );
