@@ -1,92 +1,29 @@
 import React, { useState } from 'react';
-import VideoCall from './components/VideoCall';
-import styled from 'styled-components';
+import Room from './pages/Room';
 
-const Container = styled.div`
-  text-align: center;
-  background-color: #1e1e1e;
-  min-height: 100vh;
-  color: white;
-`;
-
-const Header = styled.header`
-  padding: 20px;
-  background-color: #2d2d2d;
-`;
-
-const JoinForm = styled.div`
-  margin: 50px auto;
-  max-width: 400px;
-  padding: 20px;
-  background-color: #2d2d2d;
-  border-radius: 10px;
-`;
-
-const Input = styled.input`
-  width: 100%;
-  padding: 10px;
-  margin: 10px 0;
-  border: none;
-  border-radius: 5px;
-`;
-
-const Button = styled.button`
-  background-color: #0b57d0;
-  color: white;
-  border: none;
-  padding: 10px 20px;
-  border-radius: 5px;
-  cursor: pointer;
-  margin-top: 10px;
-  
-  &:hover {
-    background-color: #0d47a1;
-  }
-`;
-
-function App() {
-  const [inCall, setInCall] = useState(false);
-  const [roomId, setRoomId] = useState('');
-  const [userId, setUserId] = useState('');
-
-  const joinCall = () => {
-    if (roomId && userId) {
-      setInCall(true);
-    }
-  };
+export default function App() {
+  const [joined, setJoined] = useState(false);
+  const [roomId, setRoomId] = useState('room-1');
+  const [userId, setUserId] = useState('user-' + Math.floor(Math.random() * 1000));
 
   return (
-    <Container>
-      <Header>
-        <h1>MeetClone</h1>
-      </Header>
-      
-      {inCall ? (
-        <VideoCall 
-          roomId={roomId} 
-          userId={userId} 
-          onLeave={() => setInCall(false)} 
-        />
+    <div style={{ padding: 20 }}>
+      {!joined ? (
+        <div>
+          <h2>Join Room</h2>
+          <div>
+            <label>Room ID</label>
+            <input value={roomId} onChange={(e) => setRoomId(e.target.value)} />
+          </div>
+          <div>
+            <label>User ID</label>
+            <input value={userId} onChange={(e) => setUserId(e.target.value)} />
+          </div>
+          <button onClick={() => setJoined(true)}>Join</button>
+        </div>
       ) : (
-        <JoinForm>
-          <h2>Join a Meeting</h2>
-          <Input
-            type="text"
-            placeholder="Room ID"
-            value={roomId}
-            onChange={(e) => setRoomId(e.target.value)}
-          />
-          <Input
-            type="text"
-            placeholder="Your Name"
-            value={userId}
-            onChange={(e) => setUserId(e.target.value)}
-          />
-          <Button onClick={joinCall}>Join Meeting</Button>
-        </JoinForm>
+        <Room roomId={roomId} userId={userId} />
       )}
-    </Container>
+    </div>
   );
 }
-
-export default App;
