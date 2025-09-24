@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { ICE_SERVERS } from '../utils/webrtc';
+import ChatBox from '../components/ChatBox';
 
 type RemotePeer = {
   socketId: string;
@@ -19,7 +20,7 @@ export default function Room({
   roomId: string;
   userId: string;
   onLeave: () => void;
-})  {
+}) {
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
   const [socket, setSocket] = useState<Socket | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
@@ -29,6 +30,11 @@ export default function Room({
   const [micOn, setMicOn] = useState(true);
   const [camOn, setCamOn] = useState(true);
 
+  // 🔹 Chat state
+  const [messages, setMessages] = useState<{ from: string; text: string }[]>(
+    []
+  );
+
   useEffect(() => {
     const s = io(SIGNAL_SERVER);
     setSocket(s);
@@ -37,7 +43,6 @@ export default function Room({
 
     const start = async () => {
       console.log('Starting connection to signaling server...');
-      // lấy stream local
       const stream = await navigator.mediaDevices.getUserMedia({
         video: true,
         audio: true,
@@ -47,22 +52,22 @@ export default function Room({
         localVideoRef.current.srcObject = stream;
       }
 
-      // s.on('connect', () => {
-        s.emit('join-room', { roomId, userId });
-      // });
+      s.emit('join-room', { roomId, userId });
 
-      // existing peers (sent to new user) -> tạo RTCPeerConnection và tạo offer tới họ
+      // 🔹 Chat listener
+      s.on('chat-message', (msg: { from: string; text: string }) => {
+        setMessages(prev => [...prev, msg]);
+      });
+
       s.on(
         'existing-peer',
         async (payload: { socketId: string; userId?: string | null }) => {
           const { socketId, userId: theirUserId } = payload;
-          // tạo peer connection & add track
           const pc = createPeerConnection(socketId, s);
           localStreamRef.current
             ?.getTracks()
             .forEach(t => pc.addTrack(t, localStreamRef.current!));
           peersRef.current[socketId] = { socketId, userId: theirUserId, pc };
-          // tạo offer (we are initiator to existing peer)
           const offer = await pc.createOffer();
           await pc.setLocalDescription(offer);
           s.emit('signal', {
@@ -74,12 +79,10 @@ export default function Room({
         }
       );
 
-      // new peer -> khi người khác vừa join, họ đã được thông báo; chúng ta sẽ chờ họ gửi offer hoặc họ sẽ nhận offer từ chúng ta
       s.on(
         'new-peer',
         async (payload: { socketId: string; userId?: string | null }) => {
           const { socketId, userId: theirUserId } = payload;
-          // tạo pc nhưng do họ mới join, họ có thể tạo offer tới chúng ta. Chúng ta chỉ chuẩn bị PC.
           const pc = createPeerConnection(socketId, s);
           localStreamRef.current
             ?.getTracks()
@@ -89,7 +92,6 @@ export default function Room({
         }
       );
 
-      // nhận signaling messages (offer/answer/candidate)
       s.on(
         'signal',
         async (payload: {
@@ -101,7 +103,6 @@ export default function Room({
           const { from, type, data, fromUserId } = payload;
           let peer = peersRef.current[from];
           if (!peer) {
-            // nếu chưa có peer (nếu chúng ta chưa được thông báo) — tạo pc
             const pc = createPeerConnection(from, s);
             localStreamRef.current
               ?.getTracks()
@@ -155,7 +156,6 @@ export default function Room({
       };
 
       pc.ontrack = ev => {
-        // nhận remote stream
         const stream = ev.streams[0];
         if (peersRef.current[socketId]) {
           peersRef.current[socketId].stream = stream;
@@ -189,7 +189,7 @@ export default function Room({
       }
     }
 
-     return () => {
+    return () => {
       cleanupAll();
       s.disconnect();
     };
@@ -197,12 +197,12 @@ export default function Room({
 
   function cleanupAll() {
     if (socket) socket.emit('leave-room', { roomId });
-    Object.values(peersRef.current).forEach((p) => p.pc.close());
+    Object.values(peersRef.current).forEach(p => p.pc.close());
     peersRef.current = {};
-    localStreamRef.current?.getTracks().forEach((t) => t.stop());
+    localStreamRef.current?.getTracks().forEach(t => t.stop());
   }
 
-   // 🔹 Toggle mic
+  // 🔹 Toggle mic
   const toggleMic = () => {
     if (!localStreamRef.current) return;
     const audioTrack = localStreamRef.current.getAudioTracks()[0];
@@ -228,7 +228,7 @@ export default function Room({
     if (socket) socket.disconnect();
     onLeave();
   };
-  // Render
+
   const remoteVideos = Object.values(peersRef.current).map(p => (
     <div
       key={p.socketId}
@@ -247,34 +247,81 @@ export default function Room({
   ));
 
   return (
-    <div>
-      <h3>Room: {roomId}</h3>
-      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-        <div style={{ width: 320, height: 240 }}>
-          <video
-            ref={localVideoRef}
-            autoPlay
-            playsInline
-            muted
-            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-          />
-          <div style={{ fontSize: 12 }}>{userId} (you)</div>
+    <div style={{ display: 'flex', gap: 20 }}>
+      {/* Video section */}
+      <div style={{ flex: 2 }}>
+        <h3>Room: {roomId}</h3>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          <div style={{ width: 320, height: 240 }}>
+            <video
+              ref={localVideoRef}
+              autoPlay
+              playsInline
+              muted
+              style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+            />
+            <div style={{ fontSize: 12 }}>{userId} (you)</div>
+          </div>
+          {remoteVideos}
         </div>
-        {remoteVideos}
+
+        {/* Controls */}
+        <div style={{ marginTop: 20 }}>
+          <button onClick={toggleMic}>
+            {micOn ? 'Mute Mic' : 'Unmute Mic'}
+          </button>
+          <button onClick={toggleCam} style={{ marginLeft: 10 }}>
+            {camOn ? 'Turn Off Camera' : 'Turn On Camera'}
+          </button>
+          <button onClick={leaveRoom} style={{ marginLeft: 10, color: 'red' }}>
+            Leave Room
+          </button>
+        </div>
       </div>
 
-      {/* Controls */}
-      <div style={{ marginTop: 20 }}>
-        <button onClick={toggleMic}>
-          {micOn ? 'Mute Mic' : 'Unmute Mic'}
-        </button>
-        <button onClick={toggleCam} style={{ marginLeft: 10 }}>
-          {camOn ? 'Turn Off Camera' : 'Turn On Camera'}
-        </button>
-        <button onClick={leaveRoom} style={{ marginLeft: 10, color: 'red' }}>
-          Leave Room
-        </button>
-      </div>
+      {/* Chat section */}
+      {/* <div style={{ flex: 1, border: '1px solid #ccc', borderRadius: 4, display: 'flex', flexDirection: 'column' }}>
+        <div
+          style={{
+            flex: 1,
+            padding: 8,
+            overflowY: 'auto',
+            maxHeight: 400,
+          }}
+        >
+          {messages.map((m, idx) => (
+            <div key={idx} style={{ marginBottom: 6 }}>
+              <b>{m.from === userId ? 'You' : m.from}:</b> {m.text}
+            </div>
+          ))}
+        </div>
+        <div style={{ display: 'flex', padding: 8, borderTop: '1px solid #ccc' }}>
+          <input
+            value={newMessage}
+            onChange={e => setNewMessage(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && sendMessage()}
+            placeholder="Type a message..."
+            style={{ flex: 1, marginRight: 8 }}
+          />
+          <button onClick={sendMessage}>Send</button>
+        </div>
+      </div> */}
+
+      <ChatBox
+        userId={userId}
+        messages={messages}
+        onSend={msg => {
+          if (socket) {
+            socket.emit('chat-message', {
+              to: roomId,
+              from: userId,
+              text: msg,
+            });
+          }
+          // local echo
+          // setMessages(prev => [...prev, { from: userId, text: msg }]);
+        }}
+      />
     </div>
   );
 }
