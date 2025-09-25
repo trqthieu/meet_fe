@@ -31,15 +31,15 @@ export default function Room({
   const [camOn, setCamOn] = useState(true);
 
   // 🔹 Chat state
-  const [messages, setMessages] = useState<{ from: string; text: string }[]>(
-    []
-  );
+  const [messages, setMessages] = useState<{ from: string; text: string }[]>([]);
+
+  // 🔹 Screen sharing state
+  const [screenSharing, setScreenSharing] = useState(false);
+  const [screenStream, setScreenStream] = useState<MediaStream | null>(null);
 
   useEffect(() => {
     const s = io(SIGNAL_SERVER);
     setSocket(s);
-
-    let mounted = true;
 
     const start = async () => {
       console.log('Starting connection to signaling server...');
@@ -229,6 +229,63 @@ export default function Room({
     onLeave();
   };
 
+  // 🔹 Share screen
+  const toggleScreenShare = async () => {
+    if (!screenSharing) {
+      try {
+        const displayStream = await navigator.mediaDevices.getDisplayMedia({
+          video: true,
+        });
+        const screenTrack = displayStream.getTracks()[0];
+
+        // replace video track for all peers
+        Object.values(peersRef.current).forEach(peer => {
+          const sender = peer.pc.getSenders().find(s => s.track?.kind === 'video');
+          if (sender) sender.replaceTrack(screenTrack);
+        });
+
+        // show local preview
+        if (localVideoRef.current) {
+          localVideoRef.current.srcObject = displayStream;
+        }
+
+        screenTrack.onended = () => {
+          stopScreenShare();
+        };
+
+        setScreenStream(displayStream);
+        setScreenSharing(true);
+      } catch (err) {
+        console.error('Error sharing screen:', err);
+      }
+    } else {
+      stopScreenShare();
+    }
+  };
+
+  const stopScreenShare = async () => {
+    const cameraStream = await navigator.mediaDevices.getUserMedia({
+      video: true,
+      audio: true,
+    });
+    localStreamRef.current = cameraStream;
+
+    const videoTrack = cameraStream.getVideoTracks()[0];
+
+    Object.values(peersRef.current).forEach(peer => {
+      const sender = peer.pc.getSenders().find(s => s.track?.kind === 'video');
+      if (sender) sender.replaceTrack(videoTrack);
+    });
+
+    if (localVideoRef.current) {
+      localVideoRef.current.srcObject = cameraStream;
+    }
+
+    screenStream?.getTracks().forEach(track => track.stop());
+    setScreenStream(null);
+    setScreenSharing(false);
+  };
+
   const remoteVideos = Object.values(peersRef.current).map(p => (
     <div
       key={p.socketId}
@@ -273,6 +330,9 @@ export default function Room({
           <button onClick={toggleCam} style={{ marginLeft: 10 }}>
             {camOn ? 'Turn Off Camera' : 'Turn On Camera'}
           </button>
+          <button onClick={toggleScreenShare} style={{ marginLeft: 10 }}>
+            {screenSharing ? 'Stop Share' : 'Share Screen'}
+          </button>
           <button onClick={leaveRoom} style={{ marginLeft: 10, color: 'red' }}>
             Leave Room
           </button>
@@ -280,33 +340,6 @@ export default function Room({
       </div>
 
       {/* Chat section */}
-      {/* <div style={{ flex: 1, border: '1px solid #ccc', borderRadius: 4, display: 'flex', flexDirection: 'column' }}>
-        <div
-          style={{
-            flex: 1,
-            padding: 8,
-            overflowY: 'auto',
-            maxHeight: 400,
-          }}
-        >
-          {messages.map((m, idx) => (
-            <div key={idx} style={{ marginBottom: 6 }}>
-              <b>{m.from === userId ? 'You' : m.from}:</b> {m.text}
-            </div>
-          ))}
-        </div>
-        <div style={{ display: 'flex', padding: 8, borderTop: '1px solid #ccc' }}>
-          <input
-            value={newMessage}
-            onChange={e => setNewMessage(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && sendMessage()}
-            placeholder="Type a message..."
-            style={{ flex: 1, marginRight: 8 }}
-          />
-          <button onClick={sendMessage}>Send</button>
-        </div>
-      </div> */}
-
       <ChatBox
         userId={userId}
         messages={messages}
@@ -318,8 +351,6 @@ export default function Room({
               text: msg,
             });
           }
-          // local echo
-          // setMessages(prev => [...prev, { from: userId, text: msg }]);
         }}
       />
     </div>
